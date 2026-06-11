@@ -1,43 +1,31 @@
 import telebot
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
-import sqlite3
 import random
 import time
 import threading
 import re
 from datetime import datetime
 
-# ========== ВАШИ ДАННЫЕ ==========
+# ========== ДАННЫЕ (уже ваши) ==========
 BOT_TOKEN = "8846825715:AAFiEmV3oMgNaOw6K98veE8QFZR70oXpynU"
 OWNER_ID = 8281259050
-CARD_NUMBER = "2200700916294340"   # карта Т-банка
-# =================================
+CARD_NUMBER = "2200700916294340"
+# =======================================
 
 bot = telebot.TeleBot(BOT_TOKEN)
+bot.send_chat_action = lambda chat_id, action: telebot.types.ChatAction.typing
 
-# База данных для хранения заказов
-def init_db():
-    conn = sqlite3.connect('orders.db')
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS orders
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  user_id INTEGER,
-                  order_type TEXT,
-                  status TEXT,
-                  reading TEXT,
-                  created_at TIMESTAMP)''')
-    conn.commit()
-    conn.close()
-init_db()
+# Хранилище заказов
+orders = {}
+order_counter = 1
 
-# Генерация расклада через GPT (бесплатный g4f)
+# ========== Функция GPT через g4f ==========
 def get_gpt_reading(prompt_type):
-    # Подготавливаем запрос в зависимости от типа
     prompts = {
-        "love": "Сделай расклад Таро на любовные отношения. Напиши 5-7 предложений. Будь конкретен.",
-        "money": "Сделай расклад Таро на финансовое благополучие и карьеру. Напиши 5-7 предложений.",
-        "future": "Сделай общий расклад Таро на ближайшее будущее. Напиши 5-7 предложений.",
-        "health": "Сделай расклад Таро на здоровье. Напиши 5-7 предложений."
+        "love": "Ты опытный таролог. Сделай расклад Таро на любовь и отношения. Напиши 5-7 предложений тёплым, загадочным тоном. Будь конкретен, добавь совет.",
+        "money": "Ты таролог. Сделай расклад Таро на финансовое благополучие и карьеру. 5-7 предложений, вдохновляющий, с практическим советом.",
+        "future": "Сделай общий расклад Таро на ближайшее будущее (месяц). 5-7 предложений, таинственно и обнадёживающе.",
+        "health": "Сделай расклад Таро на здоровье и энергию. 5-7 предложений, мягко, без страшилок, дай рекомендации."
     }
     query = prompts.get(prompt_type, prompts["future"])
     try:
@@ -48,128 +36,166 @@ def get_gpt_reading(prompt_type):
         )
         return response
     except Exception as e:
-        # Запасной вариант
-        return f"✨ Карты говорят: {random.choice(['удача', 'перемены', 'встреча'])} ждёт вас. (GPT временно недоступен, ошибка: {e})"
+        # Запасной вариант на случай сбоя g4f
+        fallback = {
+            "love": "✨ Карты говорят: скоро в вашу жизнь войдёт человек, который изменит многое. Будьте открыты, но не теряйте себя.",
+            "money": "💰 Финансовая удача повернётся к вам, когда вы завершите старые дела. Обратите внимание на долги.",
+            "future": "🔮 В ближайшие недели произойдёт событие, которое заставит улыбнуться. Доверьтесь потоку.",
+            "health": "🌿 Ваша энергия восстанавливается. Дайте себе отдых и не забывайте дышать."
+        }
+        return fallback.get(prompt_type, fallback["future"]) + f" (Ошибка GPT: {e})"
 
-# Клавиатура выбора расклада
+# ========== Клавиатуры ==========
 def get_choice_keyboard():
     markup = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
-    markup.add(KeyboardButton("💖 Любовь и отношения"), 
-               KeyboardButton("💰 Финансы и карьера"),
-               KeyboardButton("🔮 Общее будущее"),
-               KeyboardButton("🌿 Здоровье"))
+    markup.add(KeyboardButton("💖 Любовь и отношения"), KeyboardButton("💰 Финансы и карьера"))
+    markup.add(KeyboardButton("🔮 Общее будущее"), KeyboardButton("🌿 Здоровье"))
+    markup.add(KeyboardButton("🎲 Случайный расклад"))
     return markup
 
-# Команда /start
+def after_payment_keyboard():
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton("✅ Я перевёл(а)", callback_data="i_paid"))
+    return markup
+
+# ========== Команда /start ==========
 @bot.message_handler(commands=['start'])
 def start(message):
     user_id = message.from_user.id
-    bot.send_message(user_id,
-                     f"✨ Привет! Я нейросетевой таролог. Выбери тип расклада:",
-                     reply_markup=get_choice_keyboard())
+    name = message.from_user.first_name
+    welcome_text = (
+        f"✨ *Здравствуйте, {name}!* ✨\n\n"
+        f"Я — *AI Таролог*, нейросеть, обученная на тысячах раскладов.\n"
+        f"Я не человек, но чувствую энергию чисел и звёзд.\n\n"
+        f"Выберите тему, которая вас волнует, и я сделаю *точный расклад*.\n"
+        f"Стоимость — всего *199 рублей* за полный прогноз от GPT.\n\n"
+        f"👇 *Нажмите на кнопку ниже*"
+    )
+    bot.send_chat_action(user_id, 'typing')
+    time.sleep(1)
+    bot.send_message(user_id, welcome_text, parse_mode="Markdown", reply_markup=get_choice_keyboard())
 
-# Обработка выбора расклада
-@bot.message_handler(func=lambda m: m.text in ["💖 Любовь и отношения", "💰 Финансы и карьера", "🔮 Общее будущее", "🌿 Здоровье"])
+# ========== Обработка выбора темы ==========
+@bot.message_handler(func=lambda m: m.text in ["💖 Любовь и отношения", "💰 Финансы и карьера", "🔮 Общее будущее", "🌿 Здоровье", "🎲 Случайный расклад"])
 def handle_choice(message):
+    global order_counter
     user_id = message.from_user.id
+    name = message.from_user.first_name
     choice_map = {
         "💖 Любовь и отношения": "love",
         "💰 Финансы и карьера": "money",
         "🔮 Общее будущее": "future",
-        "🌿 Здоровье": "health"
+        "🌿 Здоровье": "health",
+        "🎲 Случайный расклад": random.choice(["love", "money", "future", "health"])
     }
     order_type = choice_map[message.text]
+    order_id = order_counter
+    order_counter += 1
+    orders[user_id] = {"type": order_type, "order_id": order_id, "status": "waiting"}
     
-    # Сохраняем заказ в БД со статусом "waiting_payment"
-    conn = sqlite3.connect('orders.db')
-    c = conn.cursor()
-    c.execute("INSERT INTO orders (user_id, order_type, status, created_at) VALUES (?,?,?,?)",
-              (user_id, order_type, "waiting_payment", datetime.now().isoformat()))
-    order_id = c.lastrowid
-    conn.commit()
-    conn.close()
+    bot.send_chat_action(user_id, 'typing')
+    time.sleep(1.5)
     
     bot.send_message(user_id,
-                     f"🔮 Ты выбрал расклад: {message.text}\n\n"
-                     f"💳 Стоимость: 199 руб.\n"
-                     f"Переведи на карту Т-банка:\n`{CARD_NUMBER}`\n"
-                     f"В комментарии к переводу укажи:\n`Расклад {order_id}`\n\n"
-                     f"После перевода нажми кнопку «Я перевел(а)» и напиши слово ПОДТВЕРЖДАЮ.\n"
-                     f"Я отправлю расклад, как только получу подтверждение.\n\n"
-                     f"⚠️ Важно: без комментария я не смогу связать платёж с заказом.",
+                     f"🔮 *{name}*, хороший выбор.\n"
+                     f"Я уже чувствую вибрации...\n\n"
+                     f"💰 *Стоимость расклада:* 199 ₽\n"
+                     f"💳 *Карта для перевода:* `{CARD_NUMBER}`\n"
+                     f"📝 *Обязательный комментарий:* `Расклад {order_id}`\n\n"
+                     f"После перевода нажмите кнопку и напишите слово *ПОДТВЕРЖДАЮ*.\n"
+                     f"Я сразу же отправлю ваш персональный прогноз.\n\n"
+                     f"*Важно:* без комментария я не смогу вас узнать, и расклад не дойдёт.",
                      parse_mode="Markdown",
-                     reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("✅ Я перевел(а)", callback_data=f"paid_{order_id}")))
+                     reply_markup=after_payment_keyboard())
 
-# Колбэк для кнопки "Я перевел(а)"
-@bot.callback_query_handler(func=lambda call: call.data.startswith("paid_"))
+# ========== Кнопка "Я перевёл" ==========
+@bot.callback_query_handler(func=lambda call: call.data == "i_paid")
 def paid_callback(call):
     user_id = call.from_user.id
-    order_id = int(call.data.split("_")[1])
+    name = call.from_user.first_name
+    bot.answer_callback_query(call.id)
     bot.send_message(user_id,
-                     "Ожидаю подтверждения. Напишите в этот чат слово **ПОДТВЕРЖДАЮ** (заглавными буквами).\n"
-                     "После этого я сразу пришлю расклад.",
+                     f"✨ Отлично, *{name}*! Я жду подтверждения.\n"
+                     f"Просто напишите в этот чат слово *ПОДТВЕРЖДАЮ* (заглавными буквами).\n"
+                     f"Как только проверю перевод, расклад придёт сюда.",
                      parse_mode="Markdown")
-    # Можно сохранить состояние, но для простоты используем ожидание текста
 
-# Обработка команды ПОДТВЕРЖДАЮ
+# ========== Подтверждение оплаты ==========
 @bot.message_handler(func=lambda m: m.text and m.text.upper() == "ПОДТВЕРЖДАЮ")
 def confirm_payment(message):
     user_id = message.from_user.id
-    conn = sqlite3.connect('orders.db')
-    c = conn.cursor()
-    # Находим последний незавершённый заказ пользователя
-    c.execute("SELECT id, order_type FROM orders WHERE user_id=? AND status='waiting_payment' ORDER BY created_at DESC LIMIT 1", (user_id,))
-    row = c.fetchone()
-    if not row:
-        bot.send_message(user_id, "❌ Нет активных заказов. Начни заново через /start")
-        conn.close()
+    name = message.from_user.first_name
+    if user_id not in orders or orders[user_id]["status"] != "waiting":
+        bot.send_message(user_id, "❌ У вас нет активного заказа. Начните с /start")
         return
-    order_id, order_type = row
+    
+    order = orders[user_id]
+    order_id = order["order_id"]
+    order_type = order["type"]
+    
+    # Эффект "думает"
+    bot.send_chat_action(user_id, 'typing')
+    thinking_msg = bot.send_message(user_id, "🔮 Раскладываю карты... Медитирую... ⏳")
+    time.sleep(3)
+    bot.delete_message(user_id, thinking_msg.message_id)
     
     # Генерируем расклад через GPT
     reading = get_gpt_reading(order_type)
     
-    # Обновляем заказ
-    c.execute("UPDATE orders SET status='completed', reading=? WHERE id=?", (reading, order_id))
-    conn.commit()
-    conn.close()
+    # Отправляем расклад
+    bot.send_chat_action(user_id, 'typing')
+    reading_text = f"🔮 *Ваш персональный расклад Таро, {name}:*\n\n{reading}\n\n✨ *Благодарю за доверие!* ✨"
+    bot.send_message(user_id, reading_text, parse_mode="Markdown")
     
-    # Отправляем расклад пользователю
-    bot.send_message(user_id, f"🔮 Твой расклад готов:\n\n{reading}")
+    # Отмечаем заказ выполненным
+    orders[user_id]["status"] = "completed"
     
-    # Уведомляем владельца
+    # Уведомление владельцу
     bot.send_message(OWNER_ID,
-                     f"💰 Пользователь {user_id} подтвердил оплату заказа №{order_id}.\n"
-                     f"Проверь перевод на карту {CARD_NUMBER} на сумму 199 руб с комментарием 'Расклад {order_id}'. Если денег нет — заблокируй пользователя.")
+                     f"💰 *Пользователь {name} (ID {user_id})* подтвердил оплату заказа №{order_id}.\n"
+                     f"Проверьте карту {CARD_NUMBER}: перевод 199 ₽ с комментарием 'Расклад {order_id}'.\n"
+                     f"Если перевода нет — заблокируйте пользователя.")
+    
+    # Просим обратную связь
+    time.sleep(2)
+    feedback_markup = InlineKeyboardMarkup()
+    feedback_markup.add(InlineKeyboardButton("👍 Да, помог", callback_data="feedback_yes"),
+                        InlineKeyboardButton("👎 Нет, не помог", callback_data="feedback_no"))
+    bot.send_message(user_id,
+                     "🙏 Мне важно ваше мнение. Расклад оказался полезным?",
+                     reply_markup=feedback_markup)
 
-# Команда /report для владельца
+# ========== Обратная связь ==========
+@bot.callback_query_handler(func=lambda call: call.data.startswith("feedback_"))
+def feedback(call):
+    user_id = call.from_user.id
+    if call.data == "feedback_yes":
+        bot.answer_callback_query(call.id, "Спасибо! Рад помочь ✨")
+        bot.send_message(user_id, "✨ Пусть звёзды вам улыбаются!")
+    else:
+        bot.answer_callback_query(call.id, "Жаль. Постараюсь стать лучше 🌙")
+        bot.send_message(user_id, "🌙 Спасибо за честность. Я учусь на каждом отзыве.")
+    # Можно сохранять отзывы в базу, но для простоты просто ответим
+
+# ========== Команды для владельца ==========
 @bot.message_handler(commands=['report'])
 def report(message):
     if message.from_user.id != OWNER_ID:
-        bot.send_message(message.from_user.id, "Доступ запрещён.")
         return
-    conn = sqlite3.connect('orders.db')
-    c = conn.cursor()
-    c.execute("SELECT COUNT(*) FROM orders WHERE status='completed'")
-    completed = c.fetchone()[0]
-    c.execute("SELECT COUNT(*) FROM orders WHERE status='waiting_payment'")
-    waiting = c.fetchone()[0]
-    total_money = completed * 199
-    bot.send_message(OWNER_ID,
-                     f"📊 Отчёт по заказам:\n✅ Выполнено: {completed}\n⏳ Ожидают оплаты: {waiting}\n💰 Выручка: {total_money} руб.")
-    conn.close()
+    completed = sum(1 for o in orders.values() if o["status"] == "completed")
+    waiting = sum(1 for o in orders.values() if o["status"] == "waiting")
+    bot.send_message(OWNER_ID, f"📊 *Статистика*\n✅ Выполнено: {completed}\n⏳ Ожидают: {waiting}\n💰 Выручка: {completed*199} ₽", parse_mode="Markdown")
 
-# Команда /cancel для отмены текущего заказа
-@bot.message_handler(commands=['cancel'])
-def cancel(message):
-    user_id = message.from_user.id
-    conn = sqlite3.connect('orders.db')
-    c = conn.cursor()
-    c.execute("UPDATE orders SET status='cancelled' WHERE user_id=? AND status='waiting_payment'", (user_id,))
-    conn.commit()
-    conn.close()
-    bot.send_message(user_id, "Текущий заказ отменён. Можешь начать заново /start")
+@bot.message_handler(commands=['check'])
+def check(message):
+    if message.from_user.id != OWNER_ID:
+        return
+    waiting_list = [f"• {uid} — заказ №{o['order_id']}, тема {o['type']}" for uid, o in orders.items() if o["status"] == "waiting"]
+    if waiting_list:
+        bot.send_message(OWNER_ID, "⏳ *Ожидают подтверждения:*\n" + "\n".join(waiting_list), parse_mode="Markdown")
+    else:
+        bot.send_message(OWNER_ID, "Нет ожидающих заказов.")
 
-# Запуск бота
-print("✅ Бот запущен. Ожидание сообщений...")
+# ========== Запуск ==========
+print("✨ Бот-таролог запущен и ждёт клиентов ✨")
 bot.infinity_polling()
