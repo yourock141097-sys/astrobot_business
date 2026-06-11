@@ -1,13 +1,10 @@
-import os
 import telebot
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-OWNER_ID = int(os.environ.get("OWNER_ID", 0))
-YOOMONEY_WALLET = os.environ.get("YOOMONEY_WALLET")
-
-if not BOT_TOKEN or not OWNER_ID or not YOOMONEY_WALLET:
-    print("Ошибка: не заданы BOT_TOKEN, OWNER_ID или YOOMONEY_WALLET")
-    exit(1)
+# ===== ВАШИ ДАННЫЕ (вписаны напрямую) =====
+BOT_TOKEN = "8846825715:AAFiEmV3oMgNaOw6K98veE8QFZR70oXpynU"
+OWNER_ID = 8281259050
+YOOMONEY_WALLET = "4100119544367845"
+# =========================================
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
@@ -18,7 +15,7 @@ def start(message):
                      f"✨ Привет! Полный расклад Таро — 199 руб.\n\n"
                      f"Переведите на кошелёк ЮMoney: `{YOOMONEY_WALLET}`\n"
                      f"В комментарии **обязательно** укажите ваш Telegram ID: `{user_id}`\n\n"
-                     f"После перевода **напишите сюда слово ПОДТВЕРЖДАЮ** — я пришлю расклад вручную (в течение часа).\n"
+                     f"После перевода **напишите сюда слово ПОДТВЕРЖДАЮ** — я пришлю расклад.\n"
                      f"Спасибо за доверие! 🔮",
                      parse_mode="Markdown")
 
@@ -28,5 +25,5 @@ def confirm(message):
     bot.send_message(user_id, "🔮 Ваш расклад: Вас ждёт удача в финансах. Будьте внимательны к новым возможностям!")
     bot.send_message(OWNER_ID, f"💰 Пользователь {user_id} подтвердил платёж (нужно проверить в банке).")
 
-print("Бот запущен (упрощённая версия)")
+print("✅ Бот успешно запущен и работает!")
 bot.infinity_polling()
