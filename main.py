@@ -3,17 +3,15 @@ from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMar
 import random
 import time
 import threading
-import re
 from datetime import datetime
 
-# ========== ДАННЫЕ (уже ваши) ==========
+# ========== ДАННЫЕ ==========
 BOT_TOKEN = "8846825715:AAFiEmV3oMgNaOw6K98veE8QFZR70oXpynU"
 OWNER_ID = 8281259050
 CARD_NUMBER = "2200700916294340"
-# =======================================
+# ============================
 
 bot = telebot.TeleBot(BOT_TOKEN)
-bot.send_chat_action = lambda chat_id, action: telebot.types.ChatAction.typing
 
 # Хранилище заказов
 orders = {}
@@ -36,7 +34,6 @@ def get_gpt_reading(prompt_type):
         )
         return response
     except Exception as e:
-        # Запасной вариант на случай сбоя g4f
         fallback = {
             "love": "✨ Карты говорят: скоро в вашу жизнь войдёт человек, который изменит многое. Будьте открыты, но не теряйте себя.",
             "money": "💰 Финансовая удача повернётся к вам, когда вы завершите старые дела. Обратите внимание на долги.",
@@ -175,7 +172,6 @@ def feedback(call):
     else:
         bot.answer_callback_query(call.id, "Жаль. Постараюсь стать лучше 🌙")
         bot.send_message(user_id, "🌙 Спасибо за честность. Я учусь на каждом отзыве.")
-    # Можно сохранять отзывы в базу, но для простоты просто ответим
 
 # ========== Команды для владельца ==========
 @bot.message_handler(commands=['report'])
